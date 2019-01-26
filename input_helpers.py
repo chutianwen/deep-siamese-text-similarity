@@ -77,6 +77,7 @@ class InputHelper(object):
             else:
                 x1.append(l[1].lower())
                 x2.append(l[0].lower())
+            # print("!"*100, l, l[2])
             y.append(int(l[2]))
         return np.asarray(x1),np.asarray(x2),np.asarray(y)
 
