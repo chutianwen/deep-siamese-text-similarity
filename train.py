@@ -233,8 +233,8 @@ with tf.Graph().as_default():
 
     ptr=0
     max_validation_acc=0.0
-    for nn in xrange(sum_no_of_batches*FLAGS.num_epochs):
-        batch = batches.next()
+    for nn in range(sum_no_of_batches*FLAGS.num_epochs):
+        batch = next(batches)
         if len(batch)<1:
             continue
         x1_batch,x2_batch, y_batch = zip(*batch)

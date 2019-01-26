@@ -10,9 +10,10 @@ from gensim.models.word2vec import Word2Vec
 import gzip
 from random import random
 from preprocess import MyVocabularyProcessor
+
 import sys
-reload(sys)
-sys.setdefaultencoding("utf-8")
+import importlib,sys
+importlib.reload(sys)
 
 class InputHelper(object):
     pre_emb = dict()
@@ -100,7 +101,7 @@ class InputHelper(object):
         combined = np.asarray(x1+x2)
         shuffle_indices = np.random.permutation(np.arange(len(combined)))
         combined_shuff = combined[shuffle_indices]
-        for i in xrange(len(combined)):
+        for i in range(len(combined)):
             x1.append(combined[i])
             x2.append(combined_shuff[i])
             y.append(0) #np.array([1,0]))
@@ -208,7 +209,7 @@ class InputHelper(object):
         # Build vocabulary
         vocab_processor = MyVocabularyProcessor(max_document_length,min_frequency=0)
         vocab_processor = vocab_processor.restore(vocab_path)
-        print len(vocab_processor.vocabulary_)
+        print(len(vocab_processor.vocabulary_))
 
         x1 = np.asarray(list(vocab_processor.transform(x1_temp)))
         x2 = np.asarray(list(vocab_processor.transform(x2_temp)))
