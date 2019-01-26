@@ -152,17 +152,19 @@ with tf.Graph().as_default():
 	print("init all variables")
 	graph_def = tf.get_default_graph().as_graph_def()
 	graphpb_txt = str(graph_def)
+
 	with open(os.path.join(checkpoint_dir, "graphpb.txt"), 'w') as f:
 		f.write(graphpb_txt)
 
 	if FLAGS.word2vec_model:
-		# initial matrix with random uniform
+		# initial embedding matrix with random uniform
 		initW = np.random.uniform(-0.25, 0.25, (len(vocab_processor.vocabulary_), FLAGS.embedding_dim))
 		# initW = np.zeros(shape=(len(vocab_processor.vocabulary_), FLAGS.embedding_dim))
 		# load any vectors from the word2vec
 		print("initializing initW with pre-trained word2vec embeddings")
 		for w in vocab_processor.vocabulary_._mapping:
 			arr = []
+			# 去掉词中所有非数字和字母的字符
 			s = re.sub('[^0-9a-zA-Z]+', '', w)
 			if w in inpH.pre_emb:
 				arr = inpH.pre_emb[w]
@@ -172,15 +174,18 @@ with tf.Graph().as_default():
 				arr = inpH.pre_emb[s]
 			elif s.isdigit():
 				arr = inpH.pre_emb["zero"]
+
 			if len(arr) > 0:
-				# sometime, the value of one word has problem, like 'love' -> ['love', 2,4,1...], need to cut the head of vector to get number part
-				# print("!"*100, w, len(arr), arr)
+				# sometime, the vector of the word may start with an offset, use the last embedding_dim numbers will solve the problem.
 				if len(arr) > FLAGS.embedding_dim:
-					offset = len(arr) - FLAGS.embedding_dim
-					arr = arr[offset:]
+					arr = arr[-FLAGS.embedding_dim:]
 				idx = vocab_processor.vocabulary_.get(w)
 				initW[idx] = np.asarray(arr).astype(np.float32)
+
+			# 如果arr是[]，那么代表数据中的词在trained word2vec中不存在，那么就用最开始随机的weights来训练
+
 		print("Done assigning intiW. len=" + str(len(initW)))
+		# initW 会作为新的embedding matrix在内存中运行， 把inpH中的PreEmb哈希表删除释放缓存！
 		inpH.deletePreEmb()
 		gc.collect()
 		sess.run(siameseModel.W.assign(initW))
@@ -190,6 +195,7 @@ with tf.Graph().as_default():
 		"""
 		A single training step
 		"""
+		# 为什么要不时的颠倒输入的句子对的顺序？损失函数应该和输入顺序无关啊？
 		if random() > 0.5:
 			feed_dict = {
 				siameseModel.input_x1: x1_batch,
@@ -240,7 +246,7 @@ with tf.Graph().as_default():
 		return accuracy
 
 
-	# Generate batches
+	# Generate batches，Seq of [question1_tokenized, question2_tokenized, label]
 	batches = inpH.batch_iter(
 		list(zip(train_set[0], train_set[1], train_set[2])), FLAGS.batch_size, FLAGS.num_epochs)
 
@@ -268,6 +274,8 @@ with tf.Graph().as_default():
 				acc = dev_step(x1_dev_b, x2_dev_b, y_dev_b)
 				sum_acc = sum_acc + acc
 			print("")
+
+		#如果当前模型在validation数据上精确度提高了，那么打印metric并保存模型
 		if current_step % FLAGS.checkpoint_every == 0:
 			if sum_acc >= max_validation_acc:
 				max_validation_acc = sum_acc
