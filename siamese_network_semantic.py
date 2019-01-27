@@ -24,6 +24,7 @@ class SiameseLSTMw2v(object):
                 stacked_rnn_fw.append(lstm_fw_cell)
             lstm_fw_cell_m = tf.contrib.rnn.MultiRNNCell(cells=stacked_rnn_fw, state_is_tuple=True)
 
+            # TODO, change to use dynamicRDD so we can change seq length for different batch
             outputs, _ = tf.contrib.rnn.static_rnn(lstm_fw_cell_m, x, dtype=tf.float32)
         return outputs[-1]
 
@@ -62,8 +63,9 @@ class SiameseLSTMw2v(object):
             self.distance = tf.reshape(self.distance, [-1], name="distance")
         with tf.name_scope("loss"):
             self.loss = self.contrastive_loss(self.input_y,self.distance, batch_size)
+
         #### Accuracy computation is outside of this class.
         with tf.name_scope("accuracy"):
-            self.temp_sim = tf.subtract(tf.ones_like(self.distance),tf.rint(self.distance), name="temp_sim") #auto threshold 0.5
+            self.temp_sim = tf.subtract(tf.ones_like(self.distance), tf.rint(self.distance), name="temp_sim") #auto threshold 0.5
             correct_predictions = tf.equal(self.temp_sim, self.input_y)
-            self.accuracy=tf.reduce_mean(tf.cast(correct_predictions, "float"), name="accuracy")
+            self.accuracy = tf.reduce_mean(tf.cast(correct_predictions, "float"), name="accuracy")

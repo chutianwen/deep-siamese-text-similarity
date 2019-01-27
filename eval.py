@@ -42,13 +42,14 @@ print("\nEvaluating...\n")
 # Evaluation
 # ==================================================
 checkpoint_file = FLAGS.model
-print checkpoint_file
+print(checkpoint_file)
 graph = tf.Graph()
 with graph.as_default():
     session_conf = tf.ConfigProto(
       allow_soft_placement=FLAGS.allow_soft_placement,
       log_device_placement=FLAGS.log_device_placement)
     sess = tf.Session(config=session_conf)
+
     with sess.as_default():
         # Load the saved meta graph and restore variables
         saver = tf.train.import_meta_graph("{}.meta".format(checkpoint_file))
@@ -71,6 +72,7 @@ with graph.as_default():
         #emb = graph.get_operation_by_name("embedding/W").outputs[0]
         #embedded_chars = tf.nn.embedding_lookup(emb,input_x)
         # Generate batches for one epoch
+
         batches = inpH.batch_iter(list(zip(x1_test,x2_test,y_test)), 2*FLAGS.batch_size, 1, shuffle=False)
         # Collect the predictions here
         all_predictions = []
