@@ -282,3 +282,5 @@ with tf.Graph().as_default():
 				saver.save(sess, checkpoint_prefix, global_step=current_step)
 				tf.train.write_graph(sess.graph.as_graph_def(), checkpoint_prefix, "graph" + str(nn) + ".pb", as_text=False)
 				print("Saved model {} with sum_accuracy={} checkpoint to {}\n".format(nn, max_validation_acc, checkpoint_prefix))
+
+

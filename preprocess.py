@@ -55,3 +55,4 @@ class MyVocabularyProcessor(learn.preprocessing.VocabularyProcessor):
 				# 如果这个词在词库中不存在，那么应该是一个默认的恒定值，<unknown> placeholder的Index
 				word_ids[idx] = self.vocabulary_.get(token)
 			yield word_ids
+

@@ -69,10 +69,12 @@ class InputHelper(object):
         x1 = []
         x2 = []
         y = []
+        cnt_bad_data = 0
         # positive samples from file
         for line in open(filepath):
             l = line.strip().split("\t")
-            if len(l) < 2:
+            if len(l) < 3:
+                cnt_bad_data += 1
                 continue
             if random() > 0.5:
                 x1.append(l[0].lower())
@@ -80,8 +82,8 @@ class InputHelper(object):
             else:
                 x1.append(l[1].lower())
                 x2.append(l[0].lower())
-            # print("!"*100, l, l[2])
             y.append(int(l[2]))
+        print("Total bad sample: {}".format(cnt_bad_data))
         return np.asarray(x1), np.asarray(x2), np.asarray(y)
 
     def getTsvDataCharBased(self, filepath):
@@ -121,9 +123,9 @@ class InputHelper(object):
             l = line.strip().split("\t")
             if len(l) < 3:
                 continue
-            x1.append(l[1].lower())
-            x2.append(l[2].lower())
-            y.append(int(l[0]))  # np.array([0,1]))
+            x1.append(l[0].lower())
+            x2.append(l[1].lower())
+            y.append(int(l[2]))  # np.array([0,1]))
         return np.asarray(x1), np.asarray(x2), np.asarray(y)
 
     def batch_iter(self, data, batch_size, num_epochs, shuffle=True):
@@ -131,8 +133,8 @@ class InputHelper(object):
         Generates a batch iterator for a dataset.
         """
         data = np.asarray(data)
-        print(data)
-        print(data.shape)
+        # print(data)
+        # print(data.shape)
         data_size = len(data)
         num_batches_per_epoch = int(len(data) / batch_size) + 1
         for epoch in range(num_epochs):
@@ -182,7 +184,6 @@ class InputHelper(object):
         i1 = 0
         train_set = []
         dev_set = []
-        sum_no_of_batches = 0
         x1 = np.asarray(list(vocab_processor.transform(x1_text)))
         x2 = np.asarray(list(vocab_processor.transform(x2_text)))
         # Randomly shuffle data
@@ -201,7 +202,7 @@ class InputHelper(object):
         x2_train, x2_dev = x2_shuffled[:dev_idx], x2_shuffled[dev_idx:]
         y_train, y_dev = y_shuffled[:dev_idx], y_shuffled[dev_idx:]
         print("Train/Dev split for {}: {:d}/{:d}".format(training_paths, len(y_train), len(y_dev)))
-        sum_no_of_batches = sum_no_of_batches + (len(y_train) // batch_size)
+        sum_no_of_batches = len(y_train) // batch_size
         train_set = (x1_train, x2_train, y_train)
         dev_set = (x1_dev, x2_dev, y_dev)
         gc.collect()

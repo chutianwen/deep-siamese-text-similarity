@@ -4,3 +4,4 @@
 1. 训练数据，用词为底的模型（非字符为底），训练原数据：data/train_snli.txt, 训练用的word2vec的字典：data/wiki.simple.vec, 训练原数据和word2vec都可以替换
 python train.py --is_char_based False --training_files data/train_snli.txt --word2vec_model data/wiki.simple.vec
 
+python train.py --is_char_based False --training_files data/train_clean.csv --word2vec_model data/wiki.simple.vec
