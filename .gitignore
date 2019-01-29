@@ -3,6 +3,8 @@ runs
 runs/*
 data
 data/*
+.ipynb_checkpoints
+.ipynb_checkpoints/*
 
 .idea
 .idea/*
@@ -11,3 +13,5 @@ __pycache__/*
 
 validation.txt*
 /preprocess.py
+
+person_match.train2
