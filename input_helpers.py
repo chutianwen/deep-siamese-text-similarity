@@ -73,7 +73,8 @@ class InputHelper(object):
         # positive samples from file
         for line in open(filepath):
             l = line.strip().split("\t")
-            if len(l) < 3:
+
+            if len(l) < 3 or not l[2].isdigit():
                 cnt_bad_data += 1
                 continue
             if random() > 0.5:

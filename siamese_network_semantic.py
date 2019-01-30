@@ -28,11 +28,11 @@ class SiameseLSTMw2v(object):
             outputs, _ = tf.contrib.rnn.static_rnn(lstm_fw_cell_m, x, dtype=tf.float32)
         return outputs[-1]
 
-    def contrastive_loss(self, y,d,batch_size):
-        tmp= y *tf.square(d)
+    def contrastive_loss(self, y, d, batch_size):
+        tmp = y * tf.square(d)
         #tmp= tf.mul(y,tf.square(d))
-        tmp2 = (1-y) *tf.square(tf.maximum((1 - d),0))
-        return tf.reduce_sum(tmp +tmp2)/batch_size/2
+        tmp2 = (1 - y) * tf.square(tf.maximum((1 - d), 0))
+        return tf.reduce_sum(tmp + tmp2) / batch_size / 2
     
     def __init__(
         self, sequence_length, vocab_size, embedding_size, hidden_units, l2_reg_lambda, batch_size, trainableEmbeddings):
@@ -56,13 +56,15 @@ class SiameseLSTMw2v(object):
         print(self.embedded_words1)
         # Create a convolution + maxpool layer for each filter size
         with tf.name_scope("output"):
-            self.out1=self.stackedRNN(self.embedded_words1, self.dropout_keep_prob, "side1", embedding_size, sequence_length, hidden_units)
-            self.out2=self.stackedRNN(self.embedded_words2, self.dropout_keep_prob, "side2", embedding_size, sequence_length, hidden_units)
-            self.distance = tf.sqrt(tf.reduce_sum(tf.square(tf.subtract(self.out1,self.out2)),1,keep_dims=True))
-            self.distance = tf.div(self.distance, tf.add(tf.sqrt(tf.reduce_sum(tf.square(self.out1),1,keep_dims=True)),tf.sqrt(tf.reduce_sum(tf.square(self.out2),1,keep_dims=True))))
+            self.out1 = self.stackedRNN(self.embedded_words1, self.dropout_keep_prob, "side1", embedding_size, sequence_length, hidden_units)
+            self.out2 = self.stackedRNN(self.embedded_words2, self.dropout_keep_prob, "side2", embedding_size, sequence_length, hidden_units)
+            self.distance = tf.sqrt(tf.reduce_sum(tf.square(tf.subtract(self.out1, self.out2)), 1, keep_dims=True))
+            self.distance = tf.div(self.distance, tf.add(tf.sqrt(tf.reduce_sum(tf.square(self.out1), 1, keep_dims=True)),
+                                                         tf.sqrt(tf.reduce_sum(tf.square(self.out2), 1, keep_dims=True))))
             self.distance = tf.reshape(self.distance, [-1], name="distance")
+
         with tf.name_scope("loss"):
-            self.loss = self.contrastive_loss(self.input_y,self.distance, batch_size)
+            self.loss = self.contrastive_loss(self.input_y, self.distance, batch_size)
 
         #### Accuracy computation is outside of this class.
         with tf.name_scope("accuracy"):
