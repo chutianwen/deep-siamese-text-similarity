@@ -74,6 +74,8 @@ class SiameseLSTM(object):
             self.distance = tf.reshape(self.distance, [-1], name="distance")
         with tf.name_scope("loss"):
             self.loss = self.contrastive_loss(self.input_y,self.distance, batch_size)
+            self.loss = tf.identity(self.loss, name='loss_fun')
+
         #### Accuracy computation is outside of this class.
         with tf.name_scope("accuracy"):
             self.temp_sim = tf.subtract(tf.ones_like(self.distance),tf.rint(self.distance), name="temp_sim") #auto threshold 0.5

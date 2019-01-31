@@ -3,6 +3,7 @@ import gzip
 import importlib
 import re
 import sys
+import os
 from random import random
 
 import numpy as np
@@ -170,18 +171,25 @@ class InputHelper(object):
     # Data Preparatopn
     # ==================================================
 
-
-    def getDataSets(self, training_paths, max_document_length, percent_dev, batch_size, is_char_based):
+    def getDataSets(self, training_paths, max_document_length, percent_dev, batch_size, is_char_based, vocab_path):
         if is_char_based:
             x1_text, x2_text, y = self.getTsvDataCharBased(training_paths)
         else:
             x1_text, x2_text, y = self.getTsvData(training_paths)
 
-        # Build vocabulary
-        print("Building vocabulary")
         vocab_processor = MyVocabularyProcessor(max_document_length, min_frequency=0, is_char_based=is_char_based)
-        vocab_processor.fit_transform(np.concatenate((x2_text, x1_text), axis=0))
-        print("Length of loaded vocabulary ={}".format(len(vocab_processor.vocabulary_)))
+
+        if os.path.exists(vocab_path):
+            print("Loading vocab from: {}".format(vocab_path))
+            vocab_processor = vocab_processor.restore(vocab_path)
+        else:
+            # Build vocabulary
+            print("Building vocabulary")
+            vocab_processor.fit_transform(np.concatenate((x2_text, x1_text), axis=0))
+            print("Length of loaded vocabulary ={}".format(len(vocab_processor.vocabulary_)))
+            # Write vocabulary
+            vocab_processor.save(vocab_path)
+
         i1 = 0
         train_set = []
         dev_set = []
