@@ -17,21 +17,23 @@ from siamese_network_semantic import SiameseLSTMw2v
 # Parameters
 # ==================================================
 
-tf.flags.DEFINE_boolean("is_char_based", True, "is character based syntactic similarity. "
-                                               "if false then word embedding based semantic similarity is used."
-                                               "(default: True)")
+tf.flags.DEFINE_boolean("is_char_based", False, "is character based syntactic similarity. "
+                                                "if false then word embedding based semantic similarity is used."
+                                                "(default: True)")
 
-tf.flags.DEFINE_string("word2vec_model", "wiki.simple.vec", "word2vec pre-trained embeddings file (default: None)")
+tf.flags.DEFINE_string("word2vec_model", "data/wiki.simple.vec", "word2vec pre-trained embeddings file (default: None)")
 tf.flags.DEFINE_string("word2vec_format", "text", "word2vec pre-trained embeddings file format (bin/text/textgz)(default: None)")
 
 tf.flags.DEFINE_integer("embedding_dim", 300, "Dimensionality of character embedding (default: 300)")
 tf.flags.DEFINE_float("dropout_keep_prob", 1.0, "Dropout keep probability (default: 1.0)")
 tf.flags.DEFINE_float("l2_reg_lambda", 0.0, "L2 regularizaion lambda (default: 0.0)")
-tf.flags.DEFINE_string("training_files", "person_match.train2",
-                       "training file (default: None)")  # for sentence semantic similarity use "train_snli.txt"
+# for sentence semantic similarity use
+tf.flags.DEFINE_string("training_files", "data/train_snli.txt", "training file (default: None)")
+#  "train_snli.txt"
 tf.flags.DEFINE_integer("hidden_units", 50, "Number of hidden units (default:50)")
 
 # Training parameters
+tf.flags.DEFINE_integer("max_document_length", 10, "Sequence size feeding into the RNN model")
 tf.flags.DEFINE_integer("batch_size", 64, "Batch Size (default: 64)")
 tf.flags.DEFINE_integer("num_epochs", 300, "Number of training epochs (default: 200)")
 tf.flags.DEFINE_integer("evaluate_every", 1000, "Evaluate model on dev set after this many steps (default: 100)")
@@ -79,30 +81,30 @@ with tf.Graph().as_default():
 		log_device_placement=FLAGS.log_device_placement)
 	sess = tf.Session(config=session_conf)
 	print("started session")
-	with sess.as_default():
-		if FLAGS.is_char_based:
-			siameseModel = SiameseLSTM(
-				sequence_length=max_document_length,
-				vocab_size=len(vocab_processor.vocabulary_),
-				embedding_size=FLAGS.embedding_dim,
-				hidden_units=FLAGS.hidden_units,
-				l2_reg_lambda=FLAGS.l2_reg_lambda,
-				batch_size=FLAGS.batch_size
-			)
-		else:
-			siameseModel = SiameseLSTMw2v(
-				sequence_length=max_document_length,
-				vocab_size=len(vocab_processor.vocabulary_),
-				embedding_size=FLAGS.embedding_dim,
-				hidden_units=FLAGS.hidden_units,
-				l2_reg_lambda=FLAGS.l2_reg_lambda,
-				batch_size=FLAGS.batch_size,
-				trainableEmbeddings=trainableEmbeddings
-			)
-		# Define Training procedure
-		global_step = tf.Variable(0, name="global_step", trainable=False)
-		optimizer = tf.train.AdamOptimizer(1e-3)
-		print("initialized siameseModel object")
+	# with sess.as_default():
+	if FLAGS.is_char_based:
+		siameseModel = SiameseLSTM(
+			sequence_length=max_document_length,
+			vocab_size=len(vocab_processor.vocabulary_),
+			embedding_size=FLAGS.embedding_dim,
+			hidden_units=FLAGS.hidden_units,
+			l2_reg_lambda=FLAGS.l2_reg_lambda,
+			batch_size=FLAGS.batch_size
+		)
+	else:
+		siameseModel = SiameseLSTMw2v(
+			sequence_length=max_document_length,
+			vocab_size=len(vocab_processor.vocabulary_),
+			embedding_size=FLAGS.embedding_dim,
+			hidden_units=FLAGS.hidden_units,
+			l2_reg_lambda=FLAGS.l2_reg_lambda,
+			batch_size=FLAGS.batch_size,
+			trainableEmbeddings=trainableEmbeddings
+		)
+	# Define Training procedure
+	global_step = tf.Variable(0, name="global_step", trainable=False)
+	optimizer = tf.train.AdamOptimizer(1e-3)
+	print("initialized siameseModel object")
 
 	grads_and_vars = optimizer.compute_gradients(siameseModel.loss)
 	tr_op_set = optimizer.apply_gradients(grads_and_vars, global_step=global_step)
@@ -280,7 +282,7 @@ with tf.Graph().as_default():
 			if sum_acc >= max_validation_acc:
 				max_validation_acc = sum_acc
 				saver.save(sess, checkpoint_prefix, global_step=current_step)
-				tf.train.write_graph(sess.graph.as_graph_def(), checkpoint_prefix, "graph" + str(nn) + ".pb", as_text=False)
+				tf.train.write_graph(sess.graph.as_graph_def(), checkpoint_prefix, "graph" + str(nn) + ".pb", as_text=True)
 				print("Saved model {} with sum_accuracy={} checkpoint to {}\n".format(nn, max_validation_acc, checkpoint_prefix))
 
 

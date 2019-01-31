@@ -5,10 +5,9 @@ from __future__ import print_function
 import re
 
 import numpy as np
-from tensorflow.contrib import learn  # pylint: disable=g-bad-import-order
+from tensorflow.contrib.learn.python import learn  # pylint: disable=g-bad-import-order
 
-TOKENIZER_RE = re.compile(r"[A-Z]{2,}(?![a-z])|[A-Z][a-z]+(?=[A-Z])|[\'\w\-]+",
-                          re.UNICODE)
+TOKENIZER_RE = re.compile(r"[A-Z]{2,}(?![a-z])|[A-Z][a-z]+(?=[A-Z])|[\'\w\-]+",re.UNICODE)
 
 
 def tokenizer_char(iterator):
@@ -33,26 +32,3 @@ class MyVocabularyProcessor(learn.preprocessing.VocabularyProcessor):
 			tokenizer_fn = tokenizer_word
 
 		super().__init__(max_document_length, min_frequency, vocabulary, tokenizer_fn)
-
-		# sup = super(MyVocabularyProcessor, self)
-		# sup.__init__(max_document_length, min_frequency, vocabulary, tokenizer_fn)
-
-	def transform(self, raw_documents):
-		"""Transform documents to word-id matrix.
-		Convert words to ids with vocabulary fitted with fit or the one
-		provided in the constructor.
-		Args:
-		  raw_documents: An iterable which yield either str or unicode.
-		Yields:
-		  x: iterable, [n_samples, max_document_length]. Word-id matrix.
-		"""
-		for tokens in self._tokenizer(raw_documents):
-			word_ids = np.zeros(self.max_document_length, np.int64)
-			for idx, token in enumerate(tokens):
-				if idx >= self.max_document_length:
-					break
-
-				# 如果这个词在词库中不存在，那么应该是一个默认的恒定值，<unknown> placeholder的Index
-				word_ids[idx] = self.vocabulary_.get(token)
-			yield word_ids
-
