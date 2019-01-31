@@ -1,10 +1,13 @@
+import sys
 import datetime
 import gc
 import os
+# add current module to the sys path, otherwise terminal execution won't recognize this module
+sys.path.insert(0, os.path.curdir)
+
 import re
 import time
 from random import random
-
 import numpy as np
 import tensorflow as tf
 
@@ -50,7 +53,7 @@ class Trainer(NLPApp):
 			else:
 				self.inpH.loadW2V(self.FLAGS.word2vec_model, self.FLAGS.word2vec_format)
 
-		sess, siameseModel, metric_tensors, out_dir = self._build_graph(vocab_processor, trainableEmbeddings)
+		graph, sess, siameseModel, metric_tensors, out_dir = self._build_graph(vocab_processor, trainableEmbeddings)
 
 		# Checkpoint directory. Tensorflow assumes this directory already exists so we need to create it
 		checkpoint_dir = os.path.abspath(os.path.join(out_dir, "checkpoints"))
@@ -58,25 +61,27 @@ class Trainer(NLPApp):
 		if not os.path.exists(checkpoint_dir):
 			os.makedirs(checkpoint_dir)
 
-		saver = tf.train.Saver(tf.global_variables(), max_to_keep=100)
+		with graph.as_default():
+			saver = tf.train.Saver(tf.global_variables(), max_to_keep=100)
 
-		# Write vocabulary
-		vocab_processor.save(os.path.join(checkpoint_dir, "vocab"))
+			# Write vocabulary
+			vocab_processor.save(os.path.join(checkpoint_dir, "vocab"))
 
-		# Initialize all variables
-		print("init all variables")
-		sess.run(tf.global_variables_initializer())
-		initW = self.__init_embedding_matrix(vocab_processor)
-		if initW is not None:
-			sess.run(siameseModel.W.assign(initW))
+			# Initialize all variables
+			print("init all variables")
+			sess.run(tf.global_variables_initializer())
+			initW = self.__init_embedding_matrix(vocab_processor)
+			if initW is not None:
+				sess.run(siameseModel.W.assign(initW))
 
-		graph_def = tf.get_default_graph().as_graph_def()
-		graphpb_txt = str(graph_def)
-		with open(os.path.join(checkpoint_dir, "graphpb.txt"), 'w') as f:
-			f.write(graphpb_txt)
+			graph_def = tf.get_default_graph().as_graph_def()
+			graphpb_txt = str(graph_def)
+			with open(os.path.join(checkpoint_dir, "graphpb.txt"), 'w') as f:
+				f.write(graphpb_txt)
 
-		self.__run_batches(sess, sum_no_of_batches, train_set, dev_set, saver, siameseModel, metric_tensors, checkpoint_prefix)
+			self.__run_batches(sess, sum_no_of_batches, train_set, dev_set, saver, siameseModel, metric_tensors, checkpoint_prefix)
 
+		sess.close()
 
 	def __init_embedding_matrix(self, vocab_processor):
 
@@ -117,33 +122,36 @@ class Trainer(NLPApp):
 	def _build_graph(self, vocab_processor, trainableEmbeddings):
 		# ==================================================
 		print("starting graph def")
+		graph = tf.Graph()
 
-		with tf.get_default_graph().as_default():
+		with graph.as_default():
 			session_conf = tf.ConfigProto(
 				allow_soft_placement=self.FLAGS.allow_soft_placement,
 				log_device_placement=self.FLAGS.log_device_placement)
+
+			# will use default_graph as input para, and current default_graph is the `graph`
 			sess = tf.Session(config=session_conf)
 			print("started session")
-			# with sess.as_default():
-			if self.FLAGS.is_char_based:
-				siameseModel = SiameseLSTM(
-					sequence_length=self.FLAGS.max_document_length,
-					vocab_size=len(vocab_processor.vocabulary_),
-					embedding_size=self.FLAGS.embedding_dim,
-					hidden_units=self.FLAGS.hidden_units,
-					l2_reg_lambda=self.FLAGS.l2_reg_lambda,
-					batch_size=self.FLAGS.batch_size
-				)
-			else:
-				siameseModel = SiameseLSTMw2v(
-					sequence_length=self.FLAGS.max_document_length,
-					vocab_size=len(vocab_processor.vocabulary_),
-					embedding_size=self.FLAGS.embedding_dim,
-					hidden_units=self.FLAGS.hidden_units,
-					l2_reg_lambda=self.FLAGS.l2_reg_lambda,
-					batch_size=self.FLAGS.batch_size,
-					trainableEmbeddings=trainableEmbeddings
-				)
+			with sess.as_default():
+				if self.FLAGS.is_char_based:
+					siameseModel = SiameseLSTM(
+						sequence_length=self.FLAGS.max_document_length,
+						vocab_size=len(vocab_processor.vocabulary_),
+						embedding_size=self.FLAGS.embedding_dim,
+						hidden_units=self.FLAGS.hidden_units,
+						l2_reg_lambda=self.FLAGS.l2_reg_lambda,
+						batch_size=self.FLAGS.batch_size
+					)
+				else:
+					siameseModel = SiameseLSTMw2v(
+						sequence_length=self.FLAGS.max_document_length,
+						vocab_size=len(vocab_processor.vocabulary_),
+						embedding_size=self.FLAGS.embedding_dim,
+						hidden_units=self.FLAGS.hidden_units,
+						l2_reg_lambda=self.FLAGS.l2_reg_lambda,
+						batch_size=self.FLAGS.batch_size,
+						trainableEmbeddings=trainableEmbeddings
+					)
 
 			# Define Training procedure
 			global_step = tf.Variable(0, name="global_step", trainable=False)
@@ -183,9 +191,8 @@ class Trainer(NLPApp):
 			dev_summary_dir = os.path.join(out_dir, "summaries", "dev")
 			dev_summary_writer = tf.summary.FileWriter(dev_summary_dir, sess.graph)
 
-
 		metric_tensors = MetricTensors(global_step, tr_op_set, train_summary_op, dev_summary_op, train_summary_writer, dev_summary_writer)
-		return sess, siameseModel, metric_tensors, out_dir
+		return graph, sess, siameseModel, metric_tensors, out_dir
 
 	def __run_batches(self, sess, sum_no_of_batches, train_set, dev_set, saver, siameseModel, metric_tensors, checkpoint_prefix):
 
@@ -254,8 +261,6 @@ class Trainer(NLPApp):
 		print("TRAIN {}: step {}, loss {:g}, acc {:g}".format(time_str, step, loss, accuracy))
 		metric_tensors.train_summary_writer.add_summary(summaries, step)
 
-	# print(y_batch, dist, sim)
-
 
 	def __dev_step(self, sess, siameseModel, metric_tensors, x1_batch, x2_batch, y_batch):
 		"""
@@ -290,14 +295,14 @@ def arg_parser():
 	                                                "if false then word embedding based semantic similarity is used."
 	                                                "(default: True)")
 
-	tf.flags.DEFINE_string("word2vec_model", "../data/wiki.simple.vec", "word2vec pre-trained embeddings file (default: None)")
+	tf.flags.DEFINE_string("word2vec_model", "data/wiki.simple.vec", "word2vec pre-trained embeddings file (default: None)")
 	tf.flags.DEFINE_string("word2vec_format", "text", "word2vec pre-trained embeddings file format (bin/text/textgz)(default: None)")
 
 	tf.flags.DEFINE_integer("embedding_dim", 300, "Dimensionality of character embedding (default: 300)")
 	tf.flags.DEFINE_float("dropout_keep_prob", 1.0, "Dropout keep probability (default: 1.0)")
 	tf.flags.DEFINE_float("l2_reg_lambda", 0.0, "L2 regularizaion lambda (default: 0.0)")
 	# for sentence semantic similarity use
-	tf.flags.DEFINE_string("training_files", "../data/train_snli.txt", "training file (default: None)")
+	tf.flags.DEFINE_string("training_files", "data/train_snli.txt", "training file (default: None)")
 	#  "train_snli.txt"
 	tf.flags.DEFINE_integer("hidden_units", 50, "Number of hidden units (default:50)")
 
@@ -325,6 +330,7 @@ def arg_parser():
 	return FLAGS
 
 if __name__ == "__main__":
+
 	FLAGs = arg_parser()
 	app = Trainer(FLAGs)
 	app.run()
