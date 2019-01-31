@@ -206,7 +206,7 @@ class Trainer(NLPApp):
 			sum_acc = 0.0
 			if current_step % self.FLAGS.evaluate_every == 0:
 				print("\nEvaluation:")
-				dev_batches = self.inpH.batch_iter(list(zip(dev_set[0], dev_set[1], dev_set[2])), FLAGS.batch_size, 1)
+				dev_batches = self.inpH.batch_iter(list(zip(dev_set[0], dev_set[1], dev_set[2])), self.FLAGS.batch_size, 1)
 				for db in dev_batches:
 					if len(db) < 1:
 						continue
