@@ -294,8 +294,8 @@ class Trainer(NLPApp):
 			x1_batch, x2_batch = x2_batch, x1_batch
 
 		feed_dict = {
-			input_tensors.input_x1: x2_batch,
-			input_tensors.input_x2: x1_batch,
+			input_tensors.input_x1: x1_batch,
+			input_tensors.input_x2: x2_batch,
 			input_tensors.input_y: y_batch,
 			input_tensors.dropout_keep_prob: 1.0,
 		}
@@ -316,8 +316,8 @@ class Trainer(NLPApp):
 			x1_batch, x2_batch = x2_batch, x1_batch
 
 		feed_dict = {
-			input_tensors.input_x1: x2_batch,
-			input_tensors.input_x2: x1_batch,
+			input_tensors.input_x1: x1_batch,
+			input_tensors.input_x2: x2_batch,
 			input_tensors.input_y: y_batch,
 			input_tensors.dropout_keep_prob: 1.0,
 		}
