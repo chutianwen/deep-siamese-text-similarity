@@ -75,7 +75,7 @@ class Trainer(NLPApp):
 		with open(os.path.join(checkpoint_dir, "graphpb.txt"), 'w') as f:
 			f.write(graphpb_txt)
 
-		self.__run_batches(sess, sum_no_of_batches, train_set, saver, siameseModel, metric_tensors, checkpoint_prefix)
+		self.__run_batches(sess, sum_no_of_batches, train_set, dev_set, saver, siameseModel, metric_tensors, checkpoint_prefix)
 
 
 	def __init_embedding_matrix(self, vocab_processor):
@@ -187,7 +187,7 @@ class Trainer(NLPApp):
 		metric_tensors = MetricTensors(global_step, tr_op_set, train_summary_op, dev_summary_op, train_summary_writer, dev_summary_writer)
 		return sess, siameseModel, metric_tensors, out_dir
 
-	def __run_batches(self, sess, sum_no_of_batches, train_set, saver, siameseModel, metric_tensors, checkpoint_prefix):
+	def __run_batches(self, sess, sum_no_of_batches, train_set, dev_set, saver, siameseModel, metric_tensors, checkpoint_prefix):
 
 		# Generate batches，Seq of [question1_tokenized, question2_tokenized, label]
 		batches = self.inpH.batch_iter(list(zip(train_set[0], train_set[1], train_set[2])),
