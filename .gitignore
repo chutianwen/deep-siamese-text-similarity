@@ -15,3 +15,6 @@ validation.txt*
 /preprocess.py
 
 person_match.train2
+
+app/run
+app/run/*

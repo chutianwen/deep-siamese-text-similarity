@@ -50,7 +50,7 @@ class SiameseLSTMw2v(object):
         with tf.name_scope("embedding"):
             self.W = tf.Variable(
                 tf.constant(0.0, shape=[vocab_size, embedding_size]),
-                trainable=trainableEmbeddings,name="W")
+                trainable=trainableEmbeddings, name="W")
             self.embedded_words1 = tf.nn.embedding_lookup(self.W, self.input_x1)
             self.embedded_words2 = tf.nn.embedding_lookup(self.W, self.input_x2)
         print(self.embedded_words1)
