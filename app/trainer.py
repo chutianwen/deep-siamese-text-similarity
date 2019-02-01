@@ -2,9 +2,11 @@ import datetime
 import gc
 import os
 import sys
-
 # add current module to the sys path, otherwise terminal execution won't recognize this module
 sys.path.insert(0, os.path.curdir)
+
+from conf import *
+print(NS_ACCURACY)
 
 import re
 import time
@@ -138,22 +140,22 @@ class Trainer(NLPApp):
 			saver.restore(sess, model_path)
 
 			# Get the placeholders from the graph by name
-			input_x1 = graph.get_operation_by_name("input_x1").outputs[0]
-			input_x2 = graph.get_operation_by_name("input_x2").outputs[0]
-			input_y = graph.get_operation_by_name("input_y").outputs[0]
+			input_x1 = graph.get_operation_by_name(IMPUT_X1).outputs[0]
+			input_x2 = graph.get_operation_by_name(INPUT_X2).outputs[0]
+			input_y = graph.get_operation_by_name(INPUT_Y).outputs[0]
 
-			dropout_keep_prob = graph.get_operation_by_name("dropout_keep_prob").outputs[0]
+			dropout_keep_prob = graph.get_operation_by_name(DROPOUT_KEEP_PROB).outputs[0]
 
-			global_step = graph.get_operation_by_name("global_step").outputs[0]
-			loss = graph.get_operation_by_name("loss/loss_fun").outputs[0]
-			accuracy = graph.get_operation_by_name("accuracy/accuracy").outputs[0]
-			distance = graph.get_operation_by_name("output/distance").outputs[0]
-			temp_sim = graph.get_operation_by_name("accuracy/temp_sim").outputs[0]
+			global_step = graph.get_operation_by_name(GLOBAL_STEP).outputs[0]
+			loss = graph.get_operation_by_name("{}/{}".format(NS_LOSS,LOSS_FUN)).outputs[0]
+			accuracy = graph.get_operation_by_name("{}/{}".format(NS_ACCURACY,ACCURACY)).outputs[0]
+			distance = graph.get_operation_by_name("{}/{}".format(NS_OUTPUT,DISTANCE)).outputs[0]
+			temp_sim = graph.get_operation_by_name("{}/{}".format(NS_ACCURACY,TEMP_SIM)).outputs[0]
 
 			# Tensors we want to evaluate
-			tr_op_set = graph.get_operation_by_name("tr_op_set").outputs[0]
-			train_summary_op = graph.get_operation_by_name("train_summary_op").outputs[0]
-			dev_summary_op = graph.get_operation_by_name("dev_summary_op").outputs[0]
+			tr_op_set = graph.get_operation_by_name(TR_OP_SET).outputs[0]
+			train_summary_op = graph.get_operation_by_name(TRAIN_SUMMARY_OP).outputs[0]
+			dev_summary_op = graph.get_operation_by_name(DEV_SUMMARY_OP).outputs[0]
 
 			train_summary_dir = os.path.join(out_dir, "summaries", "train")
 			train_summary_writer = tf.summary.FileWriter(train_summary_dir, graph)
@@ -197,12 +199,12 @@ class Trainer(NLPApp):
 					)
 
 			# Define Training procedure
-			global_step = tf.Variable(0, name="global_step", trainable=False)
+			global_step = tf.Variable(0, name=GLOBAL_STEP, trainable=False)
 			optimizer = tf.train.AdamOptimizer(1e-3)
 			print("initialized siameseModel object")
 
 			grads_and_vars = optimizer.compute_gradients(siameseModel.loss)
-			tr_op_set = optimizer.apply_gradients(grads_and_vars, global_step=global_step, name='tr_op_set')
+			tr_op_set = optimizer.apply_gradients(grads_and_vars, global_step=global_step, name=TR_OP_SET)
 			print("defined training_ops")
 			# Keep track of gradient values and sparsity (optional)
 			grad_summaries = []
@@ -221,13 +223,13 @@ class Trainer(NLPApp):
 
 			# Train Summaries
 			train_summary_op = tf.summary.merge([loss_summary, acc_summary, grad_summaries_merged])
-			train_summary_op = tf.identity(train_summary_op, 'train_summary_op')
+			train_summary_op = tf.identity(train_summary_op, TRAIN_SUMMARY_OP)
 			train_summary_dir = os.path.join(out_dir, "summaries", "train")
 			train_summary_writer = tf.summary.FileWriter(train_summary_dir, sess.graph)
 
 			# Dev summaries
 			dev_summary_op = tf.summary.merge([loss_summary, acc_summary])
-			dev_summary_op = tf.identity(dev_summary_op, 'dev_summary_op')
+			dev_summary_op = tf.identity(dev_summary_op, DEV_SUMMARY_OP)
 			dev_summary_dir = os.path.join(out_dir, "summaries", "dev")
 			dev_summary_writer = tf.summary.FileWriter(dev_summary_dir, sess.graph)
 

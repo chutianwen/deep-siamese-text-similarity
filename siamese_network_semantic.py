@@ -1,4 +1,5 @@
 import tensorflow as tf
+from conf import *
 import numpy as np
 
 class SiameseLSTMw2v(object):
@@ -38,38 +39,38 @@ class SiameseLSTMw2v(object):
         self, sequence_length, vocab_size, embedding_size, hidden_units, l2_reg_lambda, batch_size, trainableEmbeddings):
 
         # Placeholders for input, output and dropout
-        self.input_x1 = tf.placeholder(tf.int32, [None, sequence_length], name="input_x1")
-        self.input_x2 = tf.placeholder(tf.int32, [None, sequence_length], name="input_x2")
-        self.input_y = tf.placeholder(tf.float32, [None], name="input_y")
-        self.dropout_keep_prob = tf.placeholder(tf.float32, name="dropout_keep_prob")
+        self.input_x1 = tf.placeholder(tf.int32, [None, sequence_length], name=INPUT_X1)
+        self.input_x2 = tf.placeholder(tf.int32, [None, sequence_length], name=INPUT_X2)
+        self.input_y = tf.placeholder(tf.float32, [None], name=INPUT_Y)
+        self.dropout_keep_prob = tf.placeholder(tf.float32, name=DROPOUT_KEEP_PROB)
 
         # Keeping track of l2 regularization loss (optional)
-        l2_loss = tf.constant(0.0, name="l2_loss")
+        l2_loss = tf.constant(0.0, name=L2_LOSS)
           
         # Embedding layer
-        with tf.name_scope("embedding"):
+        with tf.name_scope(NS_EMBEDDING):
             self.W = tf.Variable(
                 tf.constant(0.0, shape=[vocab_size, embedding_size]),
-                trainable=trainableEmbeddings, name="W")
+                trainable=trainableEmbeddings, name=W)
             self.embedded_words1 = tf.nn.embedding_lookup(self.W, self.input_x1)
             self.embedded_words2 = tf.nn.embedding_lookup(self.W, self.input_x2)
 
         # print(self.embedded_words1)
         # Create a convolution + maxpool layer for each filter size
-        with tf.name_scope("output"):
+        with tf.name_scope(NS_OUTPUT):
             self.out1 = self.stackedRNN(self.embedded_words1, self.dropout_keep_prob, "side1", embedding_size, sequence_length, hidden_units)
             self.out2 = self.stackedRNN(self.embedded_words2, self.dropout_keep_prob, "side2", embedding_size, sequence_length, hidden_units)
             self.distance = tf.sqrt(tf.reduce_sum(tf.square(tf.subtract(self.out1, self.out2)), 1, keep_dims=True))
             self.distance = tf.div(self.distance, tf.add(tf.sqrt(tf.reduce_sum(tf.square(self.out1), 1, keep_dims=True)),
                                                          tf.sqrt(tf.reduce_sum(tf.square(self.out2), 1, keep_dims=True))))
-            self.distance = tf.reshape(self.distance, [-1], name="distance")
+            self.distance = tf.reshape(self.distance, [-1], name=DISTANCE)
 
-        with tf.name_scope("loss"):
+        with tf.name_scope(NS_LOSS):
             self.loss = self.contrastive_loss(self.input_y, self.distance, batch_size)
-            self.loss = tf.identity(self.loss, name='loss_fun')
+            self.loss = tf.identity(self.loss, name=LOSS_FUN)
 
         #### Accuracy computation is outside of this class.
-        with tf.name_scope("accuracy"):
-            self.temp_sim = tf.subtract(tf.ones_like(self.distance), tf.rint(self.distance), name="temp_sim") #auto threshold 0.5
+        with tf.name_scope(NS_ACCURACY):
+            self.temp_sim = tf.subtract(tf.ones_like(self.distance), tf.rint(self.distance), name=TEMP_SIM) #auto threshold 0.5
             correct_predictions = tf.equal(self.temp_sim, self.input_y)
-            self.accuracy = tf.reduce_mean(tf.cast(correct_predictions, "float"), name="accuracy")
+            self.accuracy = tf.reduce_mean(tf.cast(correct_predictions, FLOAT), name=ACCURACY)
