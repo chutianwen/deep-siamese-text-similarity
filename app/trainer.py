@@ -110,11 +110,11 @@ class Trainer(NLPApp):
 		# structure the model either from build or reload
 		if self.FLAGS.model and os.path.exists("{}.meta".format(checkpoint_saved_model_abs)):
 			print("loading trained model from check point:{}".format(checkpoint_saved_model_abs))
-			saver, graph, sess, input_tensors, result_tensors, metric_ops = self.__launch_from_load(checkpoint_saved_model_abs, out_dir)
+			saver, sess, input_tensors, result_tensors, metric_ops = self.__launch_from_load(checkpoint_saved_model_abs, out_dir)
 		else:
 			trainableEmbeddings = self.__load_word2vec()
 			initW = self.__init_embedding_matrix(vocab_processor)
-			saver, graph, sess, input_tensors, result_tensors, metric_ops = self.__launch_from_build(vocab_processor, trainableEmbeddings, out_dir,
+			saver, sess, input_tensors, result_tensors, metric_ops = self.__launch_from_build(vocab_processor, trainableEmbeddings, out_dir,
 			                                                                                         checkpoint_dir_abs, initW)
 
 		# train batches
@@ -130,41 +130,41 @@ class Trainer(NLPApp):
 
 		# this with is necessary, even you set graph para to init sess
 		with graph.as_default():
+			saver = tf.train.import_meta_graph("{}.meta".format(model_path))
 
-			sess = tf.Session(graph=graph, config=self.session_conf)
-			with sess.as_default():
-				saver = tf.train.import_meta_graph("{}.meta".format(model_path))
-				saver.restore(sess, model_path)
+		sess = tf.Session(graph=graph, config=self.session_conf)
+		with sess.as_default():
 
-				# Get the placeholders from the graph by name
-				input_x1 = graph.get_operation_by_name("input_x1").outputs[0]
-				input_x2 = graph.get_operation_by_name("input_x2").outputs[0]
-				input_y = graph.get_operation_by_name("input_y").outputs[0]
+			saver.restore(sess, model_path)
 
-				dropout_keep_prob = graph.get_operation_by_name("dropout_keep_prob").outputs[0]
+			# Get the placeholders from the graph by name
+			input_x1 = graph.get_operation_by_name("input_x1").outputs[0]
+			input_x2 = graph.get_operation_by_name("input_x2").outputs[0]
+			input_y = graph.get_operation_by_name("input_y").outputs[0]
 
-				global_step = graph.get_operation_by_name("global_step").outputs[0]
-				loss = graph.get_operation_by_name("loss/loss_fun").outputs[0]
-				accuracy = graph.get_operation_by_name("accuracy/accuracy").outputs[0]
-				distance = graph.get_operation_by_name("output/distance").outputs[0]
-				temp_sim = graph.get_operation_by_name("accuracy/temp_sim").outputs[0]
+			dropout_keep_prob = graph.get_operation_by_name("dropout_keep_prob").outputs[0]
 
-				# Tensors we want to evaluate
+			global_step = graph.get_operation_by_name("global_step").outputs[0]
+			loss = graph.get_operation_by_name("loss/loss_fun").outputs[0]
+			accuracy = graph.get_operation_by_name("accuracy/accuracy").outputs[0]
+			distance = graph.get_operation_by_name("output/distance").outputs[0]
+			temp_sim = graph.get_operation_by_name("accuracy/temp_sim").outputs[0]
 
-				tr_op_set = graph.get_operation_by_name("tr_op_set").outputs[0]
-				train_summary_op = graph.get_operation_by_name("train_summary_op").outputs[0]
-				dev_summary_op = graph.get_operation_by_name("dev_summary_op").outputs[0]
+			# Tensors we want to evaluate
+			tr_op_set = graph.get_operation_by_name("tr_op_set").outputs[0]
+			train_summary_op = graph.get_operation_by_name("train_summary_op").outputs[0]
+			dev_summary_op = graph.get_operation_by_name("dev_summary_op").outputs[0]
 
-				train_summary_dir = os.path.join(out_dir, "summaries", "train")
-				train_summary_writer = tf.summary.FileWriter(train_summary_dir, graph)
-				dev_summary_dir = os.path.join(out_dir, "summaries", "dev")
-				dev_summary_writer = tf.summary.FileWriter(dev_summary_dir, graph)
+			train_summary_dir = os.path.join(out_dir, "summaries", "train")
+			train_summary_writer = tf.summary.FileWriter(train_summary_dir, graph)
+			dev_summary_dir = os.path.join(out_dir, "summaries", "dev")
+			dev_summary_writer = tf.summary.FileWriter(dev_summary_dir, graph)
 
-				input_tensors = InputTensors(input_x1, input_x2, input_y, dropout_keep_prob)
-				result_tensors = ResultTensors(global_step, loss, accuracy, distance, temp_sim)
-				metric_ops = MetricOps(tr_op_set, train_summary_op, dev_summary_op, train_summary_writer, dev_summary_writer)
+			input_tensors = InputTensors(input_x1, input_x2, input_y, dropout_keep_prob)
+			result_tensors = ResultTensors(global_step, loss, accuracy, distance, temp_sim)
+			metric_ops = MetricOps(tr_op_set, train_summary_op, dev_summary_op, train_summary_writer, dev_summary_writer)
 
-		return saver, graph, sess, input_tensors, result_tensors, metric_ops
+		return saver, sess, input_tensors, result_tensors, metric_ops
 
 	def __launch_from_build(self, vocab_processor, trainableEmbeddings, out_dir, checkpoint_dir_abs, initW):
 		# ==================================================
@@ -243,7 +243,7 @@ class Trainer(NLPApp):
 		input_tensors = InputTensors(siameseModel.input_x1, siameseModel.input_x2, siameseModel.input_y, siameseModel.dropout_keep_prob)
 		result_tensors = ResultTensors(global_step, siameseModel.loss, siameseModel.accuracy, siameseModel.distance, siameseModel.temp_sim)
 		metric_ops = MetricOps(tr_op_set, train_summary_op, dev_summary_op, train_summary_writer, dev_summary_writer)
-		return saver, graph, sess, input_tensors, result_tensors, metric_ops
+		return saver, sess, input_tensors, result_tensors, metric_ops
 
 	def __run_batches(self, sess, sum_no_of_batches, train_set, dev_set, saver, input_tensors, result_tensors, metric_ops, checkpoint_prefix):
 
@@ -375,8 +375,8 @@ def arg_parser():
 
 	tf.flags.DEFINE_string("word2vec_model", "data/wiki.simple.vec", "word2vec pre-trained embeddings file (default: None)")
 	tf.flags.DEFINE_string("word2vec_format", "text", "word2vec pre-trained embeddings file format (bin/text/textgz)(default: None)")
-	tf.flags.DEFINE_string("checkpoint_dir", "runs/1548973755/checkpoints", "Checkpoint directory from training run")
-	tf.flags.DEFINE_string("model", "model-2600", "Load trained model checkpoint (Default: None)")
+	tf.flags.DEFINE_string("checkpoint_dir", "runs/1548976511/checkpoints", "Checkpoint directory from training run")
+	tf.flags.DEFINE_string("model", "model-2000", "Load trained model checkpoint (Default: None)")
 
 	tf.flags.DEFINE_integer("embedding_dim", 300, "Dimensionality of character embedding (default: 300)")
 	tf.flags.DEFINE_float("dropout_keep_prob", 1.0, "Dropout keep probability (default: 1.0)")

@@ -33,7 +33,7 @@ class SiameseLSTM(object):
             lstm_bw_cell_m = tf.contrib.rnn.MultiRNNCell(cells=stacked_rnn_bw, state_is_tuple=True)
         # Get lstm cell output
 
-        with tf.name_scope("bw"+scope),tf.variable_scope("bw"+scope):
+        with tf.name_scope("bw"+scope), tf.variable_scope("bw"+scope):
             outputs, _, _ = tf.contrib.rnn.static_bidirectional_rnn(lstm_fw_cell_m, lstm_bw_cell_m, x, dtype=tf.float32)
         return outputs[-1]
     
