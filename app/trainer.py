@@ -1,10 +1,14 @@
 import datetime
 import gc
 import os
+import sys
+
+# add current module to the sys path, otherwise terminal execution won't recognize this module
+sys.path.insert(0, os.path.curdir)
+
 import re
 import time
 from random import random
-
 import numpy as np
 import tensorflow as tf
 
@@ -15,10 +19,8 @@ from siamese_network_semantic import SiameseLSTMw2v
 
 
 # from app import NLPApp
-
-class MetricTensors:
-	def __init__(self, global_step, tr_op_set, train_summary_op, dev_summary_op, train_summary_writer, dev_summary_writer):
-		self.global_step = global_step
+class MetricOps:
+	def __init__(self, tr_op_set, train_summary_op, dev_summary_op, train_summary_writer, dev_summary_writer):
 		self.tr_op_set = tr_op_set
 		self.train_summary_op = train_summary_op
 		self.dev_summary_op = dev_summary_op
@@ -26,15 +28,26 @@ class MetricTensors:
 		self.dev_summary_writer = dev_summary_writer
 
 
-class Trainer(NLPApp):
+class InputTensors:
+	def __init__(self, input_x1, input_x2, input_y, dropout_keep_prob):
+		self.input_x1, self.input_x2, self.input_y = input_x1, input_x2, input_y
+		self.dropout_keep_prob = dropout_keep_prob
 
+
+class ResultTensors:
+	def __init__(self, global_step, loss, accuracy, distance, temp_sim):
+		self.global_step, self.loss, self.accuracy, self.distance, self.temp_sim = global_step, loss, accuracy, distance, temp_sim
+
+
+class Trainer(NLPApp):
 	def __init__(self, FLAGs):
 		self.FLAGS = FLAGs
 		self.inpH = InputHelper()
+		self.session_conf = tf.ConfigProto(
+			allow_soft_placement=self.FLAGS.allow_soft_placement,
+			log_device_placement=self.FLAGS.log_device_placement)
 
-	def run(self):
-		train_set, dev_set, vocab_processor, sum_no_of_batches = self.inpH.getDataSets(self.FLAGS.training_files, self.FLAGS.max_document_length, 10,
-		                                                                               self.FLAGS.batch_size, self.FLAGS.is_char_based)
+	def __load_word2vec(self):
 
 		trainableEmbeddings = False
 		if self.FLAGS.is_char_based == True:
@@ -49,34 +62,274 @@ class Trainer(NLPApp):
 				      "\n!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!\n")
 			else:
 				self.inpH.loadW2V(self.FLAGS.word2vec_model, self.FLAGS.word2vec_format)
+		return trainableEmbeddings
 
-		sess, siameseModel, metric_tensors, out_dir = self._build_graph(vocab_processor, trainableEmbeddings)
+	def __build_storage_path(self):
+		'''
+		Ex.
+		out_dir:                        runs/1548973755
+		checkpoint_dir_abs:             runs/1548973755/checkpoints
+		checkpoint_model_abs:           runs/1548973755/checkpoints/model
+		checkpoint_saved_model_abs:     runs/1548973755/checkpoints/model-XXX
+		vocab_path:                     runs/1548973755/checkpoints/vocab
+		:return:
+		'''
+		checkpoint_dir_abs = os.path.abspath(self.FLAGS.checkpoint_dir)
 
-		# Checkpoint directory. Tensorflow assumes this directory already exists so we need to create it
-		checkpoint_dir = os.path.abspath(os.path.join(out_dir, "checkpoints"))
-		checkpoint_prefix = os.path.join(checkpoint_dir, "model")
-		if not os.path.exists(checkpoint_dir):
-			os.makedirs(checkpoint_dir)
+		# run/1412312455/checkpoints
+		if self.FLAGS.checkpoint_dir and os.path.exists(checkpoint_dir_abs):
+			# run/1412312455/
+			print("Checkpoint dir:{} exists, loading vocab and weights from it".format(self.FLAGS.checkpoint_dir))
+			out_dir = os.path.join(checkpoint_dir_abs, os.pardir)
+		else:
+			# Output directory for models and summaries
+			timestamp = str(int(time.time()))
+			out_dir = os.path.abspath(os.path.join(os.path.curdir, "runs", timestamp))
+			checkpoint_dir_abs = os.path.abspath(os.path.join(out_dir, "checkpoints"))
+			os.makedirs(checkpoint_dir_abs)
 
-		saver = tf.train.Saver(tf.global_variables(), max_to_keep=100)
+		checkpoint_model_abs = os.path.join(checkpoint_dir_abs, "model")
 
-		# Write vocabulary
-		vocab_processor.save(os.path.join(checkpoint_dir, "vocab"))
+		print("Writing to {}\n".format(out_dir))
+		checkpoint_saved_model_abs = os.path.join(checkpoint_dir_abs, self.FLAGS.model)
+		vocab_path = os.path.join(checkpoint_dir_abs, "vocab")
+		return out_dir, checkpoint_dir_abs, checkpoint_model_abs, checkpoint_saved_model_abs, vocab_path
 
-		# Initialize all variables
-		print("init all variables")
-		sess.run(tf.global_variables_initializer())
-		initW = self.__init_embedding_matrix(vocab_processor)
-		if initW is not None:
-			sess.run(siameseModel.W.assign(initW))
+	def run(self):
+		'''
+		Main logic of the app
+		:return:
+		'''
+		# define all the path
+		out_dir, checkpoint_dir_abs, checkpoint_model_abs, checkpoint_saved_model_abs, vocab_path = self.__build_storage_path()
 
-		graph_def = tf.get_default_graph().as_graph_def()
-		graphpb_txt = str(graph_def)
-		with open(os.path.join(checkpoint_dir, "graphpb.txt"), 'w') as f:
-			f.write(graphpb_txt)
+		# splitting test and val data
+		train_set, dev_set, vocab_processor, sum_no_of_batches = self.inpH.getDataSets(self.FLAGS.training_files, self.FLAGS.max_document_length, 10,
+		                                                                               self.FLAGS.batch_size, self.FLAGS.is_char_based, vocab_path)
 
-		self.__run_batches(sess, sum_no_of_batches, train_set, dev_set, saver, siameseModel, metric_tensors, checkpoint_prefix)
+		# structure the model either from build or reload
+		if self.FLAGS.model and os.path.exists("{}.meta".format(checkpoint_saved_model_abs)):
+			print("loading trained model from check point:{}".format(checkpoint_saved_model_abs))
+			saver, graph, sess, input_tensors, result_tensors, metric_ops = self.__launch_from_load(checkpoint_saved_model_abs, out_dir)
+		else:
+			trainableEmbeddings = self.__load_word2vec()
+			initW = self.__init_embedding_matrix(vocab_processor)
+			saver, graph, sess, input_tensors, result_tensors, metric_ops = self.__launch_from_build(vocab_processor, trainableEmbeddings, out_dir,
+			                                                                                         checkpoint_dir_abs, initW)
 
+		# train batches
+		self.__run_batches(sess, sum_no_of_batches, train_set, dev_set, saver,
+		                   input_tensors, result_tensors, metric_ops, checkpoint_model_abs)
+
+		# don't forget to close the session
+		sess.close()
+
+	def __launch_from_load(self, model_path, out_dir):
+
+		graph = tf.Graph()
+
+		# this with is necessary, even you set graph para to init sess
+		with graph.as_default():
+
+			sess = tf.Session(graph=graph, config=self.session_conf)
+			with sess.as_default():
+				saver = tf.train.import_meta_graph("{}.meta".format(model_path))
+				saver.restore(sess, model_path)
+
+				# Get the placeholders from the graph by name
+				input_x1 = graph.get_operation_by_name("input_x1").outputs[0]
+				input_x2 = graph.get_operation_by_name("input_x2").outputs[0]
+				input_y = graph.get_operation_by_name("input_y").outputs[0]
+
+				dropout_keep_prob = graph.get_operation_by_name("dropout_keep_prob").outputs[0]
+
+				global_step = graph.get_operation_by_name("global_step").outputs[0]
+				loss = graph.get_operation_by_name("loss/loss_fun").outputs[0]
+				accuracy = graph.get_operation_by_name("accuracy/accuracy").outputs[0]
+				distance = graph.get_operation_by_name("output/distance").outputs[0]
+				temp_sim = graph.get_operation_by_name("accuracy/temp_sim").outputs[0]
+
+				# Tensors we want to evaluate
+
+				tr_op_set = graph.get_operation_by_name("tr_op_set").outputs[0]
+				train_summary_op = graph.get_operation_by_name("train_summary_op").outputs[0]
+				dev_summary_op = graph.get_operation_by_name("dev_summary_op").outputs[0]
+
+				train_summary_dir = os.path.join(out_dir, "summaries", "train")
+				train_summary_writer = tf.summary.FileWriter(train_summary_dir, graph)
+				dev_summary_dir = os.path.join(out_dir, "summaries", "dev")
+				dev_summary_writer = tf.summary.FileWriter(dev_summary_dir, graph)
+
+				input_tensors = InputTensors(input_x1, input_x2, input_y, dropout_keep_prob)
+				result_tensors = ResultTensors(global_step, loss, accuracy, distance, temp_sim)
+				metric_ops = MetricOps(tr_op_set, train_summary_op, dev_summary_op, train_summary_writer, dev_summary_writer)
+
+		return saver, graph, sess, input_tensors, result_tensors, metric_ops
+
+	def __launch_from_build(self, vocab_processor, trainableEmbeddings, out_dir, checkpoint_dir_abs, initW):
+		# ==================================================
+		print("starting graph def")
+		graph = tf.Graph()
+
+		with graph.as_default():
+			# will use default_graph as input para, and current default_graph is the `graph`
+			sess = tf.Session(graph=graph, config=self.session_conf)
+			print("started session")
+			with sess.as_default():
+				if self.FLAGS.is_char_based:
+					siameseModel = SiameseLSTM(
+						sequence_length=self.FLAGS.max_document_length,
+						vocab_size=len(vocab_processor.vocabulary_),
+						embedding_size=self.FLAGS.embedding_dim,
+						hidden_units=self.FLAGS.hidden_units,
+						l2_reg_lambda=self.FLAGS.l2_reg_lambda,
+						batch_size=self.FLAGS.batch_size
+					)
+				else:
+					siameseModel = SiameseLSTMw2v(
+						sequence_length=self.FLAGS.max_document_length,
+						vocab_size=len(vocab_processor.vocabulary_),
+						embedding_size=self.FLAGS.embedding_dim,
+						hidden_units=self.FLAGS.hidden_units,
+						l2_reg_lambda=self.FLAGS.l2_reg_lambda,
+						batch_size=self.FLAGS.batch_size,
+						trainableEmbeddings=trainableEmbeddings
+					)
+
+			# Define Training procedure
+			global_step = tf.Variable(0, name="global_step", trainable=False)
+			optimizer = tf.train.AdamOptimizer(1e-3)
+			print("initialized siameseModel object")
+
+			grads_and_vars = optimizer.compute_gradients(siameseModel.loss)
+			tr_op_set = optimizer.apply_gradients(grads_and_vars, global_step=global_step, name='tr_op_set')
+			print("defined training_ops")
+			# Keep track of gradient values and sparsity (optional)
+			grad_summaries = []
+			for g, v in grads_and_vars:
+				if g is not None:
+					grad_hist_summary = tf.summary.histogram("{}/grad/hist".format(v.name), g)
+					sparsity_summary = tf.summary.scalar("{}/grad/sparsity".format(v.name), tf.nn.zero_fraction(g))
+					grad_summaries.append(grad_hist_summary)
+					grad_summaries.append(sparsity_summary)
+			grad_summaries_merged = tf.summary.merge(grad_summaries)
+			print("defined gradient summaries")
+
+			# Summaries for loss and accuracy
+			loss_summary = tf.summary.scalar("loss", siameseModel.loss)
+			acc_summary = tf.summary.scalar("accuracy", siameseModel.accuracy)
+
+			# Train Summaries
+			train_summary_op = tf.summary.merge([loss_summary, acc_summary, grad_summaries_merged])
+			train_summary_op = tf.identity(train_summary_op, 'train_summary_op')
+			train_summary_dir = os.path.join(out_dir, "summaries", "train")
+			train_summary_writer = tf.summary.FileWriter(train_summary_dir, sess.graph)
+
+			# Dev summaries
+			dev_summary_op = tf.summary.merge([loss_summary, acc_summary])
+			dev_summary_op = tf.identity(dev_summary_op, 'dev_summary_op')
+			dev_summary_dir = os.path.join(out_dir, "summaries", "dev")
+			dev_summary_writer = tf.summary.FileWriter(dev_summary_dir, sess.graph)
+
+			saver = tf.train.Saver(tf.global_variables(), max_to_keep=100)
+			sess.run(tf.global_variables_initializer())
+			if initW is not None:
+				sess.run(siameseModel.W.assign(initW))
+
+			graphpb_txt = str(graph.as_graph_def())
+			with open(os.path.join(checkpoint_dir_abs, "graphpb.txt"), 'w') as f:
+				f.write(graphpb_txt)
+
+		input_tensors = InputTensors(siameseModel.input_x1, siameseModel.input_x2, siameseModel.input_y, siameseModel.dropout_keep_prob)
+		result_tensors = ResultTensors(global_step, siameseModel.loss, siameseModel.accuracy, siameseModel.distance, siameseModel.temp_sim)
+		metric_ops = MetricOps(tr_op_set, train_summary_op, dev_summary_op, train_summary_writer, dev_summary_writer)
+		return saver, graph, sess, input_tensors, result_tensors, metric_ops
+
+	def __run_batches(self, sess, sum_no_of_batches, train_set, dev_set, saver, input_tensors, result_tensors, metric_ops, checkpoint_prefix):
+
+		# Generate batches，Seq of [question1_tokenized, question2_tokenized, label]
+		batches = self.inpH.batch_iter(list(zip(train_set[0], train_set[1], train_set[2])),
+		                               self.FLAGS.batch_size, self.FLAGS.num_epochs)
+
+		max_validation_acc = 0.0
+		for nn in range(sum_no_of_batches * self.FLAGS.num_epochs):
+			batch = next(batches)
+			if len(batch) < 1:
+				continue
+			x1_batch, x2_batch, y_batch = zip(*batch)
+			if len(y_batch) < 1:
+				continue
+			self.__train_step(sess, input_tensors, result_tensors, metric_ops, x1_batch, x2_batch, y_batch)
+			current_step = tf.train.global_step(sess, result_tensors.global_step)
+			sum_acc = 0.0
+			if current_step % self.FLAGS.evaluate_every == 0:
+				print("\nEvaluation:")
+				dev_batches = self.inpH.batch_iter(list(zip(dev_set[0], dev_set[1], dev_set[2])), self.FLAGS.batch_size, 1)
+				for db in dev_batches:
+					if len(db) < 1:
+						continue
+					x1_dev_b, x2_dev_b, y_dev_b = zip(*db)
+					if len(y_dev_b) < 1:
+						continue
+
+					acc = self.__dev_step(sess, input_tensors, result_tensors, metric_ops, x1_dev_b, x2_dev_b, y_dev_b)
+					sum_acc = sum_acc + acc
+				print("")
+
+			# 如果当前模型在validation数据上精确度提高了，那么打印metric并保存模型
+			if current_step % self.FLAGS.checkpoint_every == 0:
+				if sum_acc >= max_validation_acc:
+					max_validation_acc = sum_acc
+					saver.save(sess, checkpoint_prefix, global_step=current_step)
+					tf.train.write_graph(sess.graph.as_graph_def(), checkpoint_prefix, "graph" + str(nn) + ".pb", as_text=True)
+					print("Saved model {} with sum_accuracy={} checkpoint to {}\n".format(nn, max_validation_acc, checkpoint_prefix))
+
+	def __train_step(self, sess, input_tensors, result_tensors, metric_ops, x1_batch, x2_batch, y_batch):
+
+		"""
+		A single training step
+		"""
+		# 为什么要不时的颠倒输入的句子对的顺序？损失函数应该和输入顺序无关啊？
+		if random() > 0.5:
+			x1_batch, x2_batch = x2_batch, x1_batch
+
+		feed_dict = {
+			input_tensors.input_x1: x1_batch,
+			input_tensors.input_x2: x2_batch,
+			input_tensors.input_y: y_batch,
+			input_tensors.dropout_keep_prob: 1.0,
+		}
+		_, step, loss, accuracy, dist, sim, summaries = sess.run(
+			[metric_ops.tr_op_set, result_tensors.global_step, result_tensors.loss, result_tensors.accuracy, result_tensors.distance,
+			 result_tensors.temp_sim, metric_ops.train_summary_op],
+			feed_dict)
+
+		time_str = datetime.datetime.now().isoformat()
+		print("TRAIN {}: step {}, loss {:g}, acc {:g}".format(time_str, step, loss, accuracy))
+		metric_ops.train_summary_writer.add_summary(summaries, step)
+
+	def __dev_step(self, sess, input_tensors, result_tensors, metric_ops, x1_batch, x2_batch, y_batch):
+		"""
+		A single training step
+		"""
+		if random() > 0.5:
+			x1_batch, x2_batch = x2_batch, x1_batch
+
+		feed_dict = {
+			input_tensors.input_x1: x1_batch,
+			input_tensors.input_x2: x2_batch,
+			input_tensors.input_y: y_batch,
+			input_tensors.dropout_keep_prob: 1.0,
+		}
+		step, loss, accuracy, sim, summaries = sess.run(
+			[result_tensors.global_step, result_tensors.loss, result_tensors.accuracy, result_tensors.temp_sim, metric_ops.dev_summary_op],
+			feed_dict)
+
+		time_str = datetime.datetime.now().isoformat()
+		print("DEV {}: step {}, loss {:g}, acc {:g}".format(time_str, step, loss, accuracy))
+		metric_ops.dev_summary_writer.add_summary(summaries, step)
+		# print(y_batch, sim)
+		return accuracy
 
 	def __init_embedding_matrix(self, vocab_processor):
 
@@ -114,190 +367,22 @@ class Trainer(NLPApp):
 			gc.collect()
 			return initW
 
-	def _build_graph(self, vocab_processor, trainableEmbeddings):
-		# ==================================================
-		print("starting graph def")
-
-		with tf.get_default_graph().as_default():
-			session_conf = tf.ConfigProto(
-				allow_soft_placement=self.FLAGS.allow_soft_placement,
-				log_device_placement=self.FLAGS.log_device_placement)
-			sess = tf.Session(config=session_conf)
-			print("started session")
-			# with sess.as_default():
-			if self.FLAGS.is_char_based:
-				siameseModel = SiameseLSTM(
-					sequence_length=self.FLAGS.max_document_length,
-					vocab_size=len(vocab_processor.vocabulary_),
-					embedding_size=self.FLAGS.embedding_dim,
-					hidden_units=self.FLAGS.hidden_units,
-					l2_reg_lambda=self.FLAGS.l2_reg_lambda,
-					batch_size=self.FLAGS.batch_size
-				)
-			else:
-				siameseModel = SiameseLSTMw2v(
-					sequence_length=self.FLAGS.max_document_length,
-					vocab_size=len(vocab_processor.vocabulary_),
-					embedding_size=self.FLAGS.embedding_dim,
-					hidden_units=self.FLAGS.hidden_units,
-					l2_reg_lambda=self.FLAGS.l2_reg_lambda,
-					batch_size=self.FLAGS.batch_size,
-					trainableEmbeddings=trainableEmbeddings
-				)
-
-			# Define Training procedure
-			global_step = tf.Variable(0, name="global_step", trainable=False)
-			optimizer = tf.train.AdamOptimizer(1e-3)
-			print("initialized siameseModel object")
-
-			grads_and_vars = optimizer.compute_gradients(siameseModel.loss)
-			tr_op_set = optimizer.apply_gradients(grads_and_vars, global_step=global_step)
-			print("defined training_ops")
-			# Keep track of gradient values and sparsity (optional)
-			grad_summaries = []
-			for g, v in grads_and_vars:
-				if g is not None:
-					grad_hist_summary = tf.summary.histogram("{}/grad/hist".format(v.name), g)
-					sparsity_summary = tf.summary.scalar("{}/grad/sparsity".format(v.name), tf.nn.zero_fraction(g))
-					grad_summaries.append(grad_hist_summary)
-					grad_summaries.append(sparsity_summary)
-			grad_summaries_merged = tf.summary.merge(grad_summaries)
-			print("defined gradient summaries")
-
-			# Output directory for models and summaries
-			timestamp = str(int(time.time()))
-			out_dir = os.path.abspath(os.path.join(os.path.curdir, "runs", timestamp))
-			print("Writing to {}\n".format(out_dir))
-
-			# Summaries for loss and accuracy
-			loss_summary = tf.summary.scalar("loss", siameseModel.loss)
-			acc_summary = tf.summary.scalar("accuracy", siameseModel.accuracy)
-
-			# Train Summaries
-			train_summary_op = tf.summary.merge([loss_summary, acc_summary, grad_summaries_merged])
-			train_summary_dir = os.path.join(out_dir, "summaries", "train")
-			train_summary_writer = tf.summary.FileWriter(train_summary_dir, sess.graph)
-
-			# Dev summaries
-			dev_summary_op = tf.summary.merge([loss_summary, acc_summary])
-			dev_summary_dir = os.path.join(out_dir, "summaries", "dev")
-			dev_summary_writer = tf.summary.FileWriter(dev_summary_dir, sess.graph)
-
-
-		metric_tensors = MetricTensors(global_step, tr_op_set, train_summary_op, dev_summary_op, train_summary_writer, dev_summary_writer)
-		return sess, siameseModel, metric_tensors, out_dir
-
-	def __run_batches(self, sess, sum_no_of_batches, train_set, dev_set, saver, siameseModel, metric_tensors, checkpoint_prefix):
-
-		# Generate batches，Seq of [question1_tokenized, question2_tokenized, label]
-		batches = self.inpH.batch_iter(list(zip(train_set[0], train_set[1], train_set[2])),
-		                               self.FLAGS.batch_size, self.FLAGS.num_epochs)
-
-		max_validation_acc = 0.0
-		for nn in range(sum_no_of_batches * self.FLAGS.num_epochs):
-			batch = next(batches)
-			if len(batch) < 1:
-				continue
-			x1_batch, x2_batch, y_batch = zip(*batch)
-			if len(y_batch) < 1:
-				continue
-			self.__train_step(sess, siameseModel, metric_tensors, x1_batch, x2_batch, y_batch)
-			current_step = tf.train.global_step(sess, metric_tensors.global_step)
-			sum_acc = 0.0
-			if current_step % self.FLAGS.evaluate_every == 0:
-				print("\nEvaluation:")
-				dev_batches = self.inpH.batch_iter(list(zip(dev_set[0], dev_set[1], dev_set[2])), self.FLAGS.batch_size, 1)
-				for db in dev_batches:
-					if len(db) < 1:
-						continue
-					x1_dev_b, x2_dev_b, y_dev_b = zip(*db)
-					if len(y_dev_b) < 1:
-						continue
-
-					acc = self.__dev_step(sess, siameseModel, metric_tensors, x1_dev_b, x2_dev_b, y_dev_b)
-					sum_acc = sum_acc + acc
-				print("")
-
-			# 如果当前模型在validation数据上精确度提高了，那么打印metric并保存模型
-			if current_step % self.FLAGS.checkpoint_every == 0:
-				if sum_acc >= max_validation_acc:
-					max_validation_acc = sum_acc
-					saver.save(sess, checkpoint_prefix, global_step=current_step)
-					tf.train.write_graph(sess.graph.as_graph_def(), checkpoint_prefix, "graph" + str(nn) + ".pb", as_text=True)
-					print("Saved model {} with sum_accuracy={} checkpoint to {}\n".format(nn, max_validation_acc, checkpoint_prefix))
-
-	def __train_step(self, sess, siameseModel, metric_tensors, x1_batch, x2_batch, y_batch):
-		"""
-		A single training step
-		"""
-		# 为什么要不时的颠倒输入的句子对的顺序？损失函数应该和输入顺序无关啊？
-		if random() > 0.5:
-			feed_dict = {
-				siameseModel.input_x1: x1_batch,
-				siameseModel.input_x2: x2_batch,
-				siameseModel.input_y: y_batch,
-				siameseModel.dropout_keep_prob: self.FLAGS.dropout_keep_prob,
-			}
-		else:
-			feed_dict = {
-				siameseModel.input_x1: x2_batch,
-				siameseModel.input_x2: x1_batch,
-				siameseModel.input_y: y_batch,
-				siameseModel.dropout_keep_prob: self.FLAGS.dropout_keep_prob,
-			}
-		_, step, loss, accuracy, dist, sim, summaries = sess.run(
-			[metric_tensors.tr_op_set, metric_tensors.global_step, siameseModel.loss, siameseModel.accuracy, siameseModel.distance,
-			 siameseModel.temp_sim, metric_tensors.train_summary_op],
-			feed_dict)
-
-		time_str = datetime.datetime.now().isoformat()
-		print("TRAIN {}: step {}, loss {:g}, acc {:g}".format(time_str, step, loss, accuracy))
-		metric_tensors.train_summary_writer.add_summary(summaries, step)
-
-	# print(y_batch, dist, sim)
-
-
-	def __dev_step(self, sess, siameseModel, metric_tensors, x1_batch, x2_batch, y_batch):
-		"""
-		A single training step
-		"""
-		if random() > 0.5:
-			feed_dict = {
-				siameseModel.input_x1: x1_batch,
-				siameseModel.input_x2: x2_batch,
-				siameseModel.input_y: y_batch,
-				siameseModel.dropout_keep_prob: 1.0,
-			}
-		else:
-			feed_dict = {
-				siameseModel.input_x1: x2_batch,
-				siameseModel.input_x2: x1_batch,
-				siameseModel.input_y: y_batch,
-				siameseModel.dropout_keep_prob: 1.0,
-			}
-		step, loss, accuracy, sim, summaries = sess.run(
-			[metric_tensors.global_step, siameseModel.loss, siameseModel.accuracy, siameseModel.temp_sim, metric_tensors.dev_summary_op],
-			feed_dict)
-
-		time_str = datetime.datetime.now().isoformat()
-		print("DEV {}: step {}, loss {:g}, acc {:g}".format(time_str, step, loss, accuracy))
-		metric_tensors.dev_summary_writer.add_summary(summaries, step)
-		print(y_batch, sim)
-		return accuracy
 
 def arg_parser():
 	tf.flags.DEFINE_boolean("is_char_based", False, "is character based syntactic similarity. "
 	                                                "if false then word embedding based semantic similarity is used."
 	                                                "(default: True)")
 
-	tf.flags.DEFINE_string("word2vec_model", "../data/wiki.simple.vec", "word2vec pre-trained embeddings file (default: None)")
+	tf.flags.DEFINE_string("word2vec_model", "data/wiki.simple.vec", "word2vec pre-trained embeddings file (default: None)")
 	tf.flags.DEFINE_string("word2vec_format", "text", "word2vec pre-trained embeddings file format (bin/text/textgz)(default: None)")
+	tf.flags.DEFINE_string("checkpoint_dir", "runs/1548973755/checkpoints", "Checkpoint directory from training run")
+	tf.flags.DEFINE_string("model", "model-2600", "Load trained model checkpoint (Default: None)")
 
 	tf.flags.DEFINE_integer("embedding_dim", 300, "Dimensionality of character embedding (default: 300)")
 	tf.flags.DEFINE_float("dropout_keep_prob", 1.0, "Dropout keep probability (default: 1.0)")
 	tf.flags.DEFINE_float("l2_reg_lambda", 0.0, "L2 regularizaion lambda (default: 0.0)")
 	# for sentence semantic similarity use
-	tf.flags.DEFINE_string("training_files", "../data/train_snli.txt", "training file (default: None)")
+	tf.flags.DEFINE_string("training_files", "data/train_snli.txt", "training file (default: None)")
 	#  "train_snli.txt"
 	tf.flags.DEFINE_integer("hidden_units", 50, "Number of hidden units (default:50)")
 
@@ -323,6 +408,7 @@ def arg_parser():
 		exit()
 
 	return FLAGS
+
 
 if __name__ == "__main__":
 	FLAGs = arg_parser()
