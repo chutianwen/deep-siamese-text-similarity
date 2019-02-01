@@ -16,7 +16,7 @@ class SiameseLSTMw2v(object):
         # Define lstm cells with tensorflow
         # Forward direction cell
 
-        with tf.name_scope("fw"+scope),tf.variable_scope("fw"+scope):
+        with tf.name_scope("fw"+scope), tf.variable_scope("fw"+scope):
             stacked_rnn_fw = []
             for _ in range(n_layers):
                 fw_cell = tf.contrib.rnn.BasicLSTMCell(n_hidden, forget_bias=1.0, state_is_tuple=True)

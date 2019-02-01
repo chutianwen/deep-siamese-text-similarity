@@ -5,3 +5,7 @@
 python train.py --is_char_based False --training_files data/train_snli.txt --word2vec_model data/wiki.simple.vec
 
 python train.py --is_char_based False --training_files data/train_clean.csv --word2vec_model data/wiki.simple.vec
+
+2. load之前训练的模型继续训练
+python train.py --is_char_based False --training_files data/train_clean.csv --word2vec_model data/wiki.simple.vec
+                --checkpoint_dir runs/1548973755/checkpoints --model model-2600
